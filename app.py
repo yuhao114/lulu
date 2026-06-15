@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent
 DB = ROOT / "lulu.db"
 FAVICON = ROOT / "favicon.gif"
+DISH_IMAGES = ROOT / "dish-images"
 HOST = "127.0.0.1"
 PORT = 8099
 ADMIN_USER = "admin"
@@ -131,7 +132,7 @@ INDEX_HTML = r"""<!doctype html>
     const cats = () => ['全部', ...Array.from(new Set(state.dishes.map(d=>d.category)))];
     const toast = text => { $('#toast').textContent = text; setTimeout(()=>{ if($('#toast').textContent===text) $('#toast').textContent=''; }, 3200); };
     const itemKey = i => [i.dish_id,i.size,i.spicy,i.avoid.join(',')].join('|');
-    const photo = d => /^https?:\/\//i.test(d.image||'') ? `<img src="${d.image}" alt="${d.name}" loading="lazy">` : (d.image||d.name[0]);
+    const photo = d => /^(https?:\/\/|\/)/i.test(d.image||'') ? `<img src="${d.image}" alt="${d.name}" loading="lazy">` : (d.image||d.name[0]);
     function selected(id){ return { size:$(`#size-${id}`)?.value||'标准', spicy:$(`#spicy-${id}`)?.value||'不辣', avoid:Array.from(document.querySelectorAll(`[data-avoid="${id}"]:checked`)).map(x=>x.value) }; }
     function price(d,s){ return s==='大份'?d.price+8:s==='小份'?Math.max(1,d.price-4):d.price; }
     function qty(id){ return state.cart.filter(i=>i.dish_id===id).reduce((s,i)=>s+i.quantity,0); }
@@ -332,6 +333,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/favicon.gif" and FAVICON.exists():
             self.send_head_ok("image/gif", FAVICON.stat().st_size)
             return
+        if parsed.path.startswith("/dish-images/"):
+            image_path = (DISH_IMAGES / Path(parsed.path).name).resolve()
+            if image_path.is_file() and image_path.parent == DISH_IMAGES.resolve():
+                content_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+                self.send_head_ok(content_type, image_path.stat().st_size)
+                return
         if parsed.path.startswith("/api/"):
             self.send_head_ok("application/json; charset=utf-8", 0)
             return
@@ -361,6 +368,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if parsed.path.startswith("/dish-images/"):
+            image_path = (DISH_IMAGES / Path(parsed.path).name).resolve()
+            if image_path.is_file() and image_path.parent == DISH_IMAGES.resolve():
+                content_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+                body = image_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
         if parsed.path == "/api/menu":
             with db() as con:
                 rows = con.execute("SELECT * FROM dishes ORDER BY id").fetchall()
